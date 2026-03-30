@@ -1,6 +1,7 @@
 # notifier.py — Sends surebet alerts to Telegram
 
 import telegram
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from datetime import datetime, timezone
 
 
@@ -22,6 +23,33 @@ SPORT_EMOJIS = {
     "table tennis": "🏓",
 }
 
+# Map bookmaker names to their URLs
+# Add more as you discover which bookmakers your filter returns
+BOOKMAKER_URLS = {
+    "bet365": "https://www.bet365.com",
+    "pinnacle": "https://www.pinnacle.com",
+    "1xbet": "https://1xbet.com",
+    "22bet": "https://22bet.com",
+    "betfair": "https://www.betfair.com",
+    "unibet": "https://www.unibet.com",
+    "bwin": "https://www.bwin.com",
+    "williamhill": "https://www.williamhill.com",
+    "william hill": "https://www.williamhill.com",
+    "betway": "https://www.betway.com",
+    "marathon": "https://www.marathonbet.com",
+    "marathonbet": "https://www.marathonbet.com",
+    "sisal": "https://www.sisal.it",
+    "pokerstars": "https://www.pokerstars.com",
+    "888sport": "https://www.888sport.com",
+    "betsson": "https://www.betsson.com",
+    "cloudbet": "https://www.cloudbet.com",
+    "sbobet": "https://www.sbobet.com",
+    "dafabet": "https://www.dafabet.com",
+    "betclic": "https://www.betclic.com",
+    "parimatch": "https://www.parimatch.com",
+    "stake": "https://stake.com",
+}
+
 
 def get_sport_emoji(sport_name):
     """Returns the emoji for a sport, or 🏆 as default."""
@@ -39,8 +67,6 @@ def get_arb_age(created_at):
         return None
 
     try:
-        # BetBurger timestamps can vary in format
-        # Try common formats
         for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
             try:
                 created_time = datetime.strptime(created_at, fmt)
@@ -66,12 +92,45 @@ def get_arb_age(created_at):
         return None
 
 
+def get_bookmaker_url(bookmaker_name):
+    """Look up the URL for a bookmaker. Returns None if not found."""
+    if not bookmaker_name:
+        return None
+    return BOOKMAKER_URLS.get(bookmaker_name.lower(), None)
+
+
+def build_buttons(bets):
+    """
+    Builds an InlineKeyboardMarkup with a button for each bookmaker.
+    Buttons link to the bookmaker's website.
+    """
+    buttons = []
+
+    for bet in bets:
+        bookie = bet.get("bookmaker_name", "")
+        url = get_bookmaker_url(bookie)
+
+        if url:
+            buttons.append(
+                InlineKeyboardButton(text=f"🔗 {bookie}", url=url)
+            )
+
+    if not buttons:
+        return None
+
+    # Arrange buttons in rows of 2 (like the screenshot)
+    rows = []
+    for i in range(0, len(buttons), 2):
+        rows.append(buttons[i:i + 2])
+
+    return InlineKeyboardMarkup(rows)
+
+
 def format_surebet(arb):
     """
     Takes a single surebet dict and returns a formatted string.
     """
 
-    # Pull out the main info, with fallbacks if a field is missing
     roi = arb.get("percent", 0)
     event = arb.get("event_name", "Unknown Event")
     sport = arb.get("sport_name", "")
@@ -81,15 +140,12 @@ def format_surebet(arb):
     event_start = arb.get("started_at") or arb.get("event_start", "")
     bets = arb.get("bets", [])
 
-    # Sport emoji
     emoji = get_sport_emoji(sport)
 
-    # Header
     status = "🔴 LIVE" if is_live else "📋 PRE"
     message = f"🔥 <b>SUREBET FOUND</b> {status}\n"
     message += "━━━━━━━━━━━━━━━━━━━━\n"
 
-    # Event info
     message += f"{emoji} <b>{sport}</b>"
     if league:
         message += f" — {league}"
@@ -97,11 +153,9 @@ def format_surebet(arb):
     message += f"📌 {event}\n"
     message += f"💰 ROI: <b>{roi:.2f}%</b>\n"
 
-    # Event start time
     if event_start:
         message += f"🗓 Kick-off: {event_start}\n"
 
-    # Arb age
     age = get_arb_age(created_at)
     if age:
         message += f"⏱ Found: {age}\n"
@@ -110,7 +164,6 @@ def format_surebet(arb):
 
     message += "━━━━━━━━━━━━━━━━━━━━\n"
 
-    # Each bet (each "side" of the arb)
     for i, bet in enumerate(bets, 1):
         bookie = bet.get("bookmaker_name", "Unknown")
         outcome = bet.get("bet_name", "—")
@@ -129,10 +182,11 @@ def format_surebet(arb):
 
 async def send_alert(bot_token, chat_id, arb):
     """
-    Formats a surebet and sends it to the Telegram channel.
+    Formats a surebet and sends it to Telegram with bookmaker buttons.
     """
 
     message = format_surebet(arb)
+    buttons = build_buttons(arb.get("bets", []))
 
     bot = telegram.Bot(token=bot_token)
 
@@ -140,7 +194,8 @@ async def send_alert(bot_token, chat_id, arb):
         await bot.send_message(
             chat_id=chat_id,
             text=message,
-            parse_mode="HTML"
+            parse_mode="HTML",
+            reply_markup=buttons  # This adds the clickable buttons
         )
         print(f"[Telegram] Alert sent: {arb.get('id', '?')}")
     except telegram.error.TelegramError as e:

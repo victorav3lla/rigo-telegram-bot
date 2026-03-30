@@ -32,6 +32,7 @@ fake_arb = {
             "bet_name": "Draw or Away",
             "odd": 1.95,
             "stake_percent": 47.7
+            
         }
     ]
 }
